@@ -41,6 +41,14 @@ class JSONDecodeError(InvalidJSONError, CompatJSONDecodeError):
         CompatJSONDecodeError.__init__(self, *args)
         InvalidJSONError.__init__(self, *self.args, **kwargs)
 
+    def __reduce__(self):
+        # Use the CompatJSONDecodeError's __reduce__ method to ensure
+        # the correct arguments are preserved for pickle serialization.
+        # This is necessary because due to MRO, OSError's __reduce__ is
+        # used by default, which only preserves the message string and
+        # loses the JSON-specific arguments (doc, pos, end).
+        return CompatJSONDecodeError.__reduce__(self)
+
 
 class HTTPError(RequestException):
     """An HTTP error occurred."""
