@@ -2796,6 +2796,45 @@ class TestPreparingURLs:
             r.json()
         assert excinfo.value.doc == r.text
 
+    def test_json_decode_error_pickle_roundtrip(self):
+        """Test that JSONDecodeError can be pickled and unpickled correctly."""
+        original = requests.exceptions.JSONDecodeError(
+            "Extra data",
+            '{"responseCode":["706"],"data":null}{"responseCode":["706"],"data":null}',
+            36,
+        )
+        pickled = pickle.dumps(original)
+        restored = pickle.loads(pickled)
+
+        assert isinstance(restored, requests.exceptions.JSONDecodeError)
+        assert restored.msg == original.msg
+        assert restored.doc == original.doc
+        assert restored.pos == original.pos
+        assert repr(restored) == repr(original)
+
+    def test_json_decode_error_in_process_pool(self):
+        """Test that JSONDecodeError doesn't break ProcessPoolExecutor."""
+        from concurrent.futures import ProcessPoolExecutor
+
+        # Use a module-level helper function (defined at module scope)
+        # to avoid pickling issues with local functions
+        from tests.test_requests import _catch_and_return_json_error
+
+        with ProcessPoolExecutor(max_workers=2) as executor:
+            # Test that error can be pickled and returned through the pool
+            future = executor.submit(_catch_and_return_json_error)
+            restored = future.result(timeout=5)
+
+            assert isinstance(restored, requests.exceptions.JSONDecodeError)
+            assert restored.msg == "Extra data"
+            assert restored.doc == '{"responseCode":["706"],"data":null}{}'
+            assert restored.pos == 36
+
+            # Verify pool is still usable after handling the error
+            future2 = executor.submit(_double, 5)
+            result = future2.result(timeout=5)
+            assert result == 10
+
     def test_status_code_425(self):
         r1 = requests.codes.get("TOO_EARLY")
         r2 = requests.codes.get("too_early")
@@ -2810,3 +2849,20 @@ class TestPreparingURLs:
         assert r4 == 425
         assert r5 == 425
         assert r6 == 425
+
+
+def _catch_and_return_json_error():
+    """Helper function for multiprocessing test - returns a JSONDecodeError."""
+    try:
+        raise requests.exceptions.JSONDecodeError(
+            "Extra data",
+            '{"responseCode":["706"],"data":null}{}',
+            36,
+        )
+    except requests.exceptions.JSONDecodeError as e:
+        return e
+
+
+def _double(x):
+    """Helper function for multiprocessing test - returns x * 2."""
+    return x * 2
